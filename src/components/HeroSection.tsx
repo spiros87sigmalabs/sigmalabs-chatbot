@@ -231,7 +231,7 @@ When you say you will send an inquiry to the team, you MUST include SEND_EMAIL_N
 Do not answer questions that are not related to SigmaLabs Technologies or its services.`;
 
   // Καλεί το δικό σου API endpoint
-  const response = await fetch('/api/chat', {
+  const response = await fetch('https://sigmalabs-chatbot.vercel.app/api/chat', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
