@@ -200,8 +200,6 @@ interface ChatBotProps {
 
   // Enhanced response generation with info collection
   const generateResponse = async (userMessage: string, onUpdate: (partial: string) => void): Promise<string> => {
-  // Δεν χρειάζεται πια API key check!
-  
   const shouldCollectInfo = userMessage.toLowerCase().includes('contact') || 
                            userMessage.toLowerCase().includes('quote') ||
                            userMessage.toLowerCase().includes('project') ||
@@ -230,8 +228,14 @@ When you say you will send an inquiry to the team, you MUST include SEND_EMAIL_N
 
 Do not answer questions that are not related to SigmaLabs Technologies or its services.`;
 
-  // Καλεί το δικό σου API endpoint
-  const response = await fetch('https://sigmalabs-chatbot.vercel.app/api/chat', {
+  // Χρησιμοποίησε το deployed API
+  const apiUrl = window.location.hostname === 'localhost' 
+    ? 'https://sigmalabs-chatbot.vercel.app/api/chat'  // Για development
+    : '/api/chat';  // Για production
+
+  console.log('Calling API:', apiUrl);
+
+  const response = await fetch(apiUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -246,7 +250,9 @@ Do not answer questions that are not related to SigmaLabs Technologies or its se
   });
 
   if (!response.ok) {
-    throw new Error(`Server error: ${response.status}`);
+    const errorText = await response.text();
+    console.error('API Error:', response.status, errorText);
+    throw new Error(`Server error: ${response.status} - ${errorText}`);
   }
 
   const reader = response.body?.getReader();

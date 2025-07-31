@@ -1,40 +1,28 @@
+// api/chat.js - Αντικατάστησε το αρχείο σου με αυτό:
+
 export default async function handler(req, res) {
-  // 🔒 Ασφαλής CORS ρύθμιση (όχι '*')
-  const allowedOrigins = [
-    'http://localhost:8080',
-    'https://sigmalabs.gr'
-  ];
-  
-  const origin = req.headers.origin;
-  if (allowedOrigins.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  }
+  // CORS Headers - Προσθήκη για να δουλεύει από localhost
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
-  // 🛑 Preflight request
+  // Handle preflight request
   if (req.method === 'OPTIONS') {
-    return res.status(204).end();  // 204 No Content είναι πιο σωστό για OPTIONS
+    res.status(200).end();
+    return;
   }
 
-  // 🚫 Μόνο POST requests
+  // Μόνο POST requests
   if (req.method !== 'POST') {
-    res.setHeader('Allow', 'POST');  // Προσθέτουμε Allow header για σωστό 405
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
   try {
     const { messages, systemPrompt } = req.body;
 
-    // ✅ Έλεγχος για κενά μηνύματα
-    if (!messages || !systemPrompt) {
-      return res.status(400).json({ error: 'Missing required fields' });
-    }
+    console.log('Received request:', { messagesCount: messages?.length, hasSystemPrompt: !!systemPrompt });
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);  // Timeout 10 δευτ.
-
+    // Καλεί το OpenAI API
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -42,70 +30,56 @@ export default async function handler(req, res) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4o',
+        model: 'gpt-4o-mini',
         messages: [
           { role: 'system', content: systemPrompt },
-          ...messages.filter(m => m.content.trim())  // Φιλτράρουμε κενά μηνύματα
+          ...messages
         ],
         temperature: 0.7,
         max_tokens: 500,
         stream: true
       }),
-      signal: controller.signal
     });
 
-    clearTimeout(timeoutId);
-
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      console.error('OpenAI API Error:', {
-        status: response.status,
-        statusText: response.statusText,
-        errorData
-      });
+      const errorText = await response.text();
+      console.error('OpenAI error:', response.status, errorText);
       return res.status(response.status).json({ 
-        error: 'OpenAI API error',
-        details: errorData
+        error: `OpenAI API error: ${response.status}` 
       });
     }
 
-    // 🔄 Streaming response
-    res.setHeader('Content-Type', 'text/event-stream');
+    // Streaming response headers
+    res.setHeader('Content-Type', 'text/plain');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
-    res.flushHeaders();  // Σημαντικό για SSE
 
+    // Stream the response
     const reader = response.body.getReader();
-    const decoder = new TextDecoder('utf-8');
+    const decoder = new TextDecoder();
 
     try {
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
         
-        const chunk = decoder.decode(value);
-        res.write(chunk);
-        // Εξασφαλίζουμε ότι τα δεδομένα αποστέλλονται αμέσως
-        if (typeof res.flush === 'function') {
-          res.flush();
+        if (done) {
+          res.end();
+          break;
         }
+        
+        const chunk = decoder.decode(value, { stream: true });
+        res.write(chunk);
       }
-    } finally {
-      reader.releaseLock();
+    } catch (streamError) {
+      console.error('Stream error:', streamError);
+      res.end();
     }
-
-    return res.end();
 
   } catch (error) {
-    console.error('Server Error:', error);
-    
-    if (error.name === 'AbortError') {
-      return res.status(504).json({ error: 'Request timeout' });
-    }
-    
-    return res.status(500).json({ 
+    console.error('Handler error:', error);
+    res.status(500).json({ 
       error: 'Internal server error',
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      details: error.message 
     });
   }
 }
